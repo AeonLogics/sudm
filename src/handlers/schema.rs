@@ -3,9 +3,8 @@ use chrono::Utc;
 use std::fs;
 use std::path::PathBuf;
 use crate::args::SchemaActions;
-use crate::utils::is_valid_identifier;
 use crate::constants::SCHEMA_ROOT;
-
+use crate::utils::is_valid_identifier;
 
 pub async fn schema_handler(actions: SchemaActions) {
     match actions {
@@ -63,7 +62,6 @@ pub fn add_to_schema(name: String) {
         return;
     }
 
-    // e.g. migrations/schema/user/20260925095558_user/
     let timestamp = Utc::now().format("%Y%m%d%H%M%S").to_string();
     let migration_dir = schema_dir.join(format!("{timestamp}_{name}"));
 
@@ -72,23 +70,58 @@ pub fn add_to_schema(name: String) {
         return;
     }
 
-    let up_path = migration_dir.join("up.surql");
-    let down_path = migration_dir.join("down.surql");
+    let files: [(String, String); 4] = [
+        (
+            format!("{name}-schema.surql"),
+            format!(
+                "-- SCHEMA: {name} ({timestamp})\n\
+                 -- Table/field/index definitions for THIS migration go here.\n\
+                 -- Runs first, before {name}-functions.surql and {name}-events.surql.\n\n"
+            ),
+        ),
+        (
+            format!("{name}-functions.surql"),
+            format!(
+                "-- FUNCTIONS: {name} ({timestamp})\n\
+                 -- Functions related to this migration go here. Runs after {name}-schema.surql.\n\
+                 -- Use OVERWRITE so this stays safe to keep editing:\n\
+                 -- DEFINE FUNCTION OVERWRITE fn::example($arg: string) {{ RETURN $arg; }};\n\n"
+            ),
+        ),
+        (
+            format!("{name}-events.surql"),
+            format!(
+                "-- EVENTS: {name} ({timestamp})\n\
+                 -- Events (triggers on CREATE/UPDATE/DELETE) related to this migration go\n\
+                 -- here. Runs last, after {name}-schema.surql and {name}-functions.surql.\n\
+                 -- Use OVERWRITE so this stays safe to keep editing:\n\
+                 -- DEFINE EVENT OVERWRITE example ON TABLE {name} WHEN $event = \"CREATE\" THEN {{ }};\n\n"
+            ),
+        ),
+        (
+            "rollback.surql".to_string(),
+            format!(
+                "-- ROLLBACK: {name} ({timestamp})\n\
+                 -- Everything in {name}-schema.surql, {name}-functions.surql, AND\n\
+                 -- {name}-events.surql is applied together as one unit. If you want to be\n\
+                 -- able to fully revert this migration, write the complete rollback here --\n\
+                 -- REMOVE TABLE / REMOVE FUNCTION / REMOVE EVENT for everything above.\n\
+                 -- Leaving this blank means this migration cannot be undone; `sudm` will warn\n\
+                 -- you and ask for confirmation before forgetting it was applied.\n\n"
+            ),
+        ),
+    ];
 
-    let up_template = format!("-- Migration UP: {name} ({timestamp})\n\n");
-    let down_template = format!("-- Migration DOWN: {name} ({timestamp})\n\n");
-
-    if let Err(e) = fs::write(&up_path, up_template) {
-        eprintln!("{} Failed to create up.surql: {}", "✖".red(), e);
-        return;
-    }
-
-    if let Err(e) = fs::write(&down_path, down_template) {
-        eprintln!("{} Failed to create down.surql: {}", "✖".red(), e);
-        return;
+    for (filename, template) in &files {
+        let path = migration_dir.join(filename);
+        if let Err(e) = fs::write(&path, template) {
+            eprintln!("{} Failed to create {}: {}", "✖".red(), filename, e);
+            return;
+        }
     }
 
     println!("{} Created migration for '{}':", "✔".green(), name.cyan());
-    println!("    {}", up_path.display());
-    println!("    {}", down_path.display());
+    for (filename, _) in &files {
+        println!("    {}", migration_dir.join(filename).display());
+    }
 }
