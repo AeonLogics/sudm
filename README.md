@@ -28,3 +28,5 @@ MIT — free to use, fork, and experiment with. See [LICENSE](LICENSE).
 
 There's no strict roadmap here — if you have an idea, feel free to build it
 and open a PR.
+
+See [USAGE.md](USAGE.md) for connection setup and the full command list.
