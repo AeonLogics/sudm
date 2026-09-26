@@ -1,18 +1,18 @@
 use colored::Colorize;
 use crate::args::{DBCommands, NSCommands};
-use crate::core::connection;
-use serde::Deserialize;
-use std::collections::BTreeMap;
-use surrealdb::types::SurrealValue;
+use crate::core::{connect_cluster, list_namespaces, list_databases};
+use crate::utils::{confirm, is_valid_identifier};
 
-#[derive(SurrealValue, Deserialize, Debug)]
-struct RootInfo {
-    namespaces: BTreeMap<String, String>,
-}
-
-#[derive(SurrealValue, Deserialize, Debug)]
-struct NamespaceInfo {
-    databases: BTreeMap<String, String>,
+fn reject_if_invalid(name: &str) -> bool {
+    if !is_valid_identifier(name) {
+        eprintln!(
+            "{} '{}' is not a valid identifier (letters, digits, underscore; must start with a letter).",
+            "✖".red(),
+            name
+        );
+        return true;
+    }
+    false
 }
 
 pub async fn ns_handler(command: NSCommands) {
@@ -30,21 +30,12 @@ pub async fn db_handler(command: DBCommands) {
 }
 
 async fn create_new_namespace(name: String) {
-    let database = connection().await;
+    if reject_if_invalid(&name) {
+        return;
+    }
 
-    let mut root_response = match database.query("INFO FOR ROOT;").await {
-        Ok(res) => res,
-        Err(e) => {
-            eprintln!("{} Failed to check cluster state: {}", "✖".red(), e);
-            return;
-        }
-    };
-
-    let namespaces = root_response
-        .take::<Option<RootInfo>>(0)
-        .unwrap()
-        .map(|info| info.namespaces)
-        .unwrap_or_default();
+    let database = connect_cluster().await;
+    let namespaces = list_namespaces(&database).await;
 
     if namespaces.contains_key(&name) {
         println!("{} Namespace {} already exists!", "⚠".yellow(), name.cyan());
@@ -53,72 +44,60 @@ async fn create_new_namespace(name: String) {
 
     let query_string = format!("DEFINE NAMESPACE {};", name);
     match database.query(&query_string).await {
-        Ok(_) => {
-            println!("{} Namespace {} created successfully!", "✔".green(), name.cyan());
-        }
-        Err(e) => {
-            eprintln!("{} Setup error: {}", "✖".red(), e);
-        }
+        Ok(_) => println!("{} Namespace {} created successfully!", "✔".green(), name.cyan()),
+        Err(e) => eprintln!("{} Setup error: {}", "✖".red(), e),
     }
 }
 
 async fn remove_namespace(name: String) {
-    let database = connection().await;
+    if reject_if_invalid(&name) {
+        return;
+    }
 
-    let mut root_response = match database.query("INFO FOR ROOT;").await {
-        Ok(res) => res,
-        Err(e) => {
-            eprintln!("{} Failed to check cluster state: {}", "✖".red(), e);
-            return;
-        }
-    };
-
-    let namespaces = root_response
-        .take::<Option<RootInfo>>(0)
-        .unwrap()
-        .map(|info| info.namespaces)
-        .unwrap_or_default();
+    let database = connect_cluster().await;
+    let namespaces = list_namespaces(&database).await;
 
     if !namespaces.contains_key(&name) {
         println!("{} Namespace {} does not exist!", "⚠".yellow(), name.cyan());
         return;
     }
 
-    let _ = database.use_ns("").use_db("").await;
-    let query_string = format!("REMOVE NAMESPACE {};", name);
+    println!(
+        "{} This will permanently delete namespace {} and EVERYTHING inside it (all databases, tables, and data).",
+        "⚠".yellow().bold(),
+        name.cyan().bold()
+    );
+    if !confirm(&format!("Type y to confirm deleting namespace '{}'", name)) {
+        println!("{}", "Aborted, nothing was deleted.".bright_black());
+        return;
+    }
 
+    let query_string = format!("REMOVE NAMESPACE {};", name);
     match database.query(&query_string).await {
-        Ok(_) => {
-            println!("{} Namespace {} is removed!", "✔".green(), name.cyan());
-        }
-        Err(e) => {
-            eprintln!("{} Removal error: {}", "✖".red(), e);
-        }
+        Ok(_) => println!("{} Namespace {} is removed!", "✔".green(), name.cyan()),
+        Err(e) => eprintln!("{} Removal error: {}", "✖".red(), e),
     }
 }
 
 async fn create_new_database(ns_name: String, db_name: String) {
-    let database = connection().await;
-
-    if let Err(e) = database.use_ns(&ns_name).await {
-        eprintln!("{} Namespace {} does not exist or is locked: {}", "✖".red(), ns_name.cyan(), e);
+    if reject_if_invalid(&ns_name) || reject_if_invalid(&db_name) {
         return;
     }
 
-    let mut ns_response = match database.query("INFO FOR NS;").await {
-        Ok(res) => res,
-        Err(e) => {
-            eprintln!("{} Failed to verify database layout: {}", "✖".red(), e);
-            return;
-        }
-    };
+    let database = connect_cluster().await;
 
-    let databases = ns_response
-        .take::<Option<NamespaceInfo>>(0)
-        .unwrap()
-        .map(|info| info.databases)
-        .unwrap_or_default();
+    let namespaces = list_namespaces(&database).await;
+    if !namespaces.contains_key(&ns_name) {
+        eprintln!("{} Namespace {} does not exist!", "✖".red(), ns_name.cyan());
+        return;
+    }
 
+    if let Err(e) = database.use_ns(&ns_name).await {
+        eprintln!("{} Failed to bind namespace {}: {}", "✖".red(), ns_name.cyan(), e);
+        return;
+    }
+
+    let databases = list_databases(&database).await;
     if databases.contains_key(&db_name) {
         println!("{} Database {} already exists inside namespace {}!", "⚠".yellow(), db_name.cyan(), ns_name.cyan());
         return;
@@ -126,49 +105,49 @@ async fn create_new_database(ns_name: String, db_name: String) {
 
     let query_string = format!("DEFINE DATABASE {};", db_name);
     match database.query(&query_string).await {
-        Ok(_) => {
-            println!("{} Database {} created successfully inside namespace {}!", "✔".green(), db_name.cyan(), ns_name.cyan());
-        }
-        Err(e) => {
-            eprintln!("{} Setup error: {}", "✖".red(), e);
-        }
+        Ok(_) => println!("{} Database {} created successfully inside namespace {}!", "✔".green(), db_name.cyan(), ns_name.cyan()),
+        Err(e) => eprintln!("{} Setup error: {}", "✖".red(), e),
     }
 }
 
 async fn remove_database(ns_name: String, db_name: String) {
-    let database = connection().await;
+    if reject_if_invalid(&ns_name) || reject_if_invalid(&db_name) {
+        return;
+    }
 
-    if let Err(_) = database.use_ns(&ns_name).await {
+    let database = connect_cluster().await;
+
+    let namespaces = list_namespaces(&database).await;
+    if !namespaces.contains_key(&ns_name) {
         println!("{} Namespace {} does not exist, skipping database lookup!", "⚠".yellow(), ns_name.cyan());
         return;
     }
 
-    let mut ns_response = match database.query("INFO FOR NS;").await {
-        Ok(res) => res,
-        Err(e) => {
-            eprintln!("{} Failed to verify database layout: {}", "✖".red(), e);
-            return;
-        }
-    };
+    if let Err(e) = database.use_ns(&ns_name).await {
+        eprintln!("{} Failed to bind namespace {}: {}", "✖".red(), ns_name.cyan(), e);
+        return;
+    }
 
-    let databases = ns_response
-        .take::<Option<NamespaceInfo>>(0)
-        .unwrap()
-        .map(|info| info.databases)
-        .unwrap_or_default();
-
+    let databases = list_databases(&database).await;
     if !databases.contains_key(&db_name) {
         println!("{} Database {} does not exist inside namespace {}!", "⚠".yellow(), db_name.cyan(), ns_name.cyan());
         return;
     }
 
+    println!(
+        "{} This will permanently delete database {} (all tables and data inside it) from namespace {}.",
+        "⚠".yellow().bold(),
+        db_name.cyan().bold(),
+        ns_name.cyan()
+    );
+    if !confirm(&format!("Type y to confirm deleting database '{}'", db_name)) {
+        println!("{}", "Aborted, nothing was deleted.".bright_black());
+        return;
+    }
+
     let query_string = format!("REMOVE DATABASE {};", db_name);
     match database.query(&query_string).await {
-        Ok(_) => {
-            println!("{} Database {} is removed from {}!", "✔".green(), db_name.cyan(), ns_name.cyan());
-        }
-        Err(e) => {
-            eprintln!("{} Removal error: {}", "✖".red(), e);
-        }
+        Ok(_) => println!("{} Database {} is removed from {}!", "✔".green(), db_name.cyan(), ns_name.cyan()),
+        Err(e) => eprintln!("{} Removal error: {}", "✖".red(), e),
     }
 }

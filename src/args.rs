@@ -1,10 +1,12 @@
 use clap::{Parser, Subcommand};
+use clap::builder::Str;
+use surrealdb::types::Action;
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "surreal-cli-tool",
+    name = "sudm",
     version,
-    about = "My Terminal Tool",
+    about = "Async SurrealDB migration CLI",
     long_about = "A dedicated CLI driver utility for managing connections and queries in SurrealDB."
 )]
 pub struct Args {
@@ -27,7 +29,10 @@ pub struct Args {
 #[derive(Subcommand, Debug)]
 pub enum Commands {
     Init,
-    Inspect,
+    Inspect {
+        #[command(subcommand)]
+        actions: InspectCommands,
+    },
     Ns {
         #[command(subcommand)]
         actions: NSCommands
@@ -35,7 +40,21 @@ pub enum Commands {
     Db {
         #[command(subcommand)]
         actions: DBCommands
+    },
+    Schema {
+        #[command(subcommand)]
+        actions: SchemaActions,
+    },
+    Migrate {
+        #[command(subcommand)]
+        actions: MigrateActions,
     }
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum InspectCommands {
+    Tree,
+    Raw
 }
 
 #[derive(Subcommand, Debug, Clone)]
@@ -48,4 +67,23 @@ pub enum NSCommands {
 pub enum DBCommands {
     New { ns_name: String, db_name: String },
     Remove { ns_name: String, db_name: String }
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum SchemaActions {
+    New {
+        name: String,
+    },
+    Add {
+        name: String,
+    }
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum MigrateActions {
+    Up,
+    Down {
+        #[arg(long)]
+        force: bool,
+    },
 }

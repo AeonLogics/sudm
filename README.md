@@ -1,40 +1,30 @@
-# 🚀 sudm
+# sudm
 
-**`sudm`** is a managed, asynchronous **SurrealDB migration driver and CLI utility** written in Rust. It serves as a seamless bridge between your local schema source files and your live SurrealDB instances, ensuring database evolutionary changes are structured, tracked, and painless.
+Async SurrealDB migration CLI.
 
----
+`sudm` bridges your local schema files with a live SurrealDB instance —
+scaffold schema folders, generate timestamped migrations, and apply or roll
+them back against your database, with everything tracked in a
+`sudm_migrations` table so `dev` and `prod` each keep their own independent
+migration history.
 
-## 📁 Workspace Architecture
+Built in Rust with async Tokio, Clap, and the official SurrealDB SDK.
 
-When initialized, `sudm` sets up a predictable, modular file directory layout inside your project workspace. This keeps your tables, logic, and side-effects separated:
+## Quick start
 
-```text
-my-project/
-├── migrations/
-│   ├── schema/       # Table structures and field definitions (SurrealQL)
-│   ├── function/     # Custom scoped database functions
-│   └── event/        # Event-driven triggers and automated handlers
+```bash
+git clone https://github.com/AeonLogics/sudm.git
+cd sudm
+cargo build --release
 ```
 
----
+See [USAGE.md](USAGE.md) for connection setup and the full command list.
 
-## 🕹️ Conceptual Workflow
+## License
 
-`sudm` manages the lifecycle of your database engine in three simple visual phases:
+MIT — free to use, fork, and experiment with. See [LICENSE](LICENSE).
 
-### 1. Structure Scaffolding
-Deploy a localized folder hierarchy instantly to map out your codebase logic safely on disk without needing network connections.
+## Contributing
 
-### 2. Boilerplate Generation
-Generate chronologically timestamped files (e.g., `20260924_user.surql`) pre-configured with explicit starting templates, preventing migration name collisions.
-
-### 3. Ledger Synchronization
-Connect to your SurrealDB instance over dynamic protocols (`ws://`, `wss://`, `http://`, `https://`). It compares local timestamps against your remote server and cleanly migrates transactions up or rolls them back down.
-
----
-
-## ⚡ Built With
-
-* **Rust & Tokio:** Fully asynchronous execution profiles for lightning-fast database updates and disk management.
-* **Clap (v4):** Human-centric CLI parsing engine with native help screens and automated environment variable integration.
-* **SurrealDB Rust SDK:** Powered natively by the official dynamic dynamic-engine infrastructure.
+There's no strict roadmap here — if you have an idea, feel free to build it
+and open a PR.

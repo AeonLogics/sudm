@@ -10,9 +10,7 @@ pub fn init_migrations() {
     println!("\n {}", "Generating Migration Setup \n".cyan());
 
     let structures = vec![
-        "migrations/Schema",
-        "migrations/Function",
-        "migrations/Event",
+        "migrations/Schema"
     ];
 
     for structure in structures {

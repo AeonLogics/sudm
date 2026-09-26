@@ -2,12 +2,13 @@
 mod core;
 mod args;
 mod handlers;
+mod utils;
+mod constants;
 
 // imports
-use crate::core::connection;
 use crate::args::{Args, Commands};
 use clap::Parser;
-use crate::handlers::{db_handler, ns_handler};
+use crate::handlers::{db_handler, inspect_handler, migration_handler, ns_handler, schema_handler};
 
 #[tokio::main]
 async fn main() {
@@ -16,8 +17,10 @@ async fn main() {
 
     match args.commands {
         Commands::Init => handlers::init_migrations(),
-        Commands::Inspect => handlers::inspect_cluster().await,
+        Commands::Inspect {actions } => inspect_handler(actions).await,
         Commands::Ns { actions } => ns_handler(actions).await,
         Commands::Db { actions  } => db_handler(actions).await,
+        Commands::Schema { actions } => schema_handler(actions).await,
+        Commands::Migrate {actions} => migration_handler(actions).await,
     }
 }
