@@ -1,11 +1,5 @@
-mod setup;
-mod inspect;
-mod ns_db_ops;
-mod schema;
-mod migration;
+mod add;
+mod run;
 
-pub use setup::init_migrations;
-pub use inspect::*;
-pub use ns_db_ops::*;
-pub use schema::*;
-pub use migration::*;
+pub use add::*;
+pub use run::*;

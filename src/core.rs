@@ -6,6 +6,7 @@ use surrealdb::engine::any::{connect, Any};
 use surrealdb::opt::auth::Root;
 use surrealdb::types::SurrealValue;
 use surrealdb::Surreal;
+use crate::success;
 
 #[derive(Deserialize, Debug, SurrealValue)]
 struct RootInfo {
@@ -25,32 +26,46 @@ fn require_var(key: &str) -> String {
     val
 }
 
+pub async fn connection() -> Surreal<Any> {
+    let db = connect_cluster().await;
+    let ns = require_var("NAMESPACE");
+    let db_name = require_var("DATABASE_NAME");
+
+    let namespaces = list_namespaces(&db).await;
+    if !namespaces.contains_key(&ns) {
+        success!("{} Namespace '{}' not found. Creating it...", "ℹ".yellow(), ns);
+        if let Err(e) = db.query(format!("DEFINE NAMESPACE `{}`;", ns)).await {
+            panic!("Failed to auto-create namespace '{}': {}", ns, e);
+        }
+    }
+    db.use_ns(&ns).await.expect("Failed to bind namespace");
+
+    let databases = list_databases(&db).await;
+    if !databases.contains_key(&db_name) {
+        println!("{} Database '{}' not found in namespace '{}'. Creating it...", "ℹ".yellow(), db_name, ns);
+        if let Err(e) = db.query(format!("DEFINE DATABASE `{}`;", db_name)).await {
+            panic!("Failed to auto-create database '{}': {}", db_name, e);
+        }
+    }
+
+    db.use_db(&db_name).await.expect("Failed to bind database");
+    success!("Bound to namespace '{}', database '{}'. \n", ns, db_name);
+
+    db
+}
+
 pub async fn connect_cluster() -> Surreal<Any> {
-    let url = require_var("DATABASE_URL");
+    let mut url = require_var("DATABASE_URL");
     let user = require_var("SURREAL_USER");
     let pass = require_var("SURREAL_PASS");
 
-    if !url.starts_with("ws://")
-        && !url.starts_with("wss://")
-        && !url.starts_with("http://")
-        && !url.starts_with("https://")
-    {
-        panic!(
-            "\n[Configuration Error]: Invalid DATABASE_URL ('{}').\n\
-            SurrealDB requires an explicit protocol engine prefix.\n\
-            Please update your environment file to include a scheme like:\n\
-            - ws://localhost:8000\n\
-            - wss://cloud.surrealdb.com\n\
-            - http://localhost:8000\n",
-            url
-        );
+    if !url.contains("://") {
+        url = format!("ws://{}", url);
     }
 
     let database = connect(&url).await.unwrap_or_else(|err| {
         panic!(
-            "Failed to connect to SurrealDB endpoint at '{}'. \n\
-            Verify the server is actively running and accessible.\n\
-            Underlying driver error: {}",
+            "Failed to connect to SurrealDB endpoint at '{}'. \nUnderlying driver error: {}",
             url, err
         )
     });
@@ -86,75 +101,4 @@ pub async fn list_databases(db: &Surreal<Any>) -> BTreeMap<String, String> {
         .flatten()
         .map(|info| info.databases)
         .unwrap_or_default()
-}
-
-#[derive(Debug)]
-pub enum BindError {
-    NamespaceNotFound { requested: String, available: Vec<String> },
-    DatabaseNotFound { requested: String, available: Vec<String> },
-}
-
-impl std::fmt::Display for BindError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            BindError::NamespaceNotFound { requested, available } => write!(
-                f,
-                "Namespace '{}' does not exist.\nAvailable namespaces: {}",
-                requested,
-                if available.is_empty() { "(none)".to_string() } else { available.join(", ") }
-            ),
-            BindError::DatabaseNotFound { requested, available } => write!(
-                f,
-                "Database '{}' does not exist in this namespace.\nAvailable databases: {}",
-                requested,
-                if available.is_empty() { "(none)".to_string() } else { available.join(", ") }
-            ),
-        }
-    }
-}
-
-pub async fn use_namespace_and_db(
-    db: &Surreal<Any>,
-    ns: &str,
-    db_name: &str,
-) -> Result<(), BindError> {
-    let namespaces = list_namespaces(db).await;
-    if !namespaces.contains_key(ns) {
-        return Err(BindError::NamespaceNotFound {
-            requested: ns.to_string(),
-            available: namespaces.keys().cloned().collect(),
-        });
-    }
-
-    db.use_ns(ns).await.expect("Failed to bind namespace after existence check");
-
-    let databases = list_databases(db).await;
-    if !databases.contains_key(db_name) {
-        return Err(BindError::DatabaseNotFound {
-            requested: db_name.to_string(),
-            available: databases.keys().cloned().collect(),
-        });
-    }
-
-    db.use_db(db_name).await.expect("Failed to bind database after existence check");
-
-    println!(
-        "{} Bound to namespace '{}', database '{}'.",
-        "✔".green(),
-        ns.bold(),
-        db_name.bold()
-    );
-    Ok(())
-}
-
-pub async fn connection() -> Surreal<Any> {
-    let db = connect_cluster().await;
-    let ns = require_var("NAMESPACE");
-    let db_name = require_var("DATABASE_NAME");
-
-    if let Err(e) = use_namespace_and_db(&db, &ns, &db_name).await {
-        panic!("\n[Bind Error]: {}\n", e);
-    }
-
-    db
 }
