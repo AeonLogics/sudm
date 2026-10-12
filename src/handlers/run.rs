@@ -36,24 +36,30 @@ fn run_setup() {
 
 async fn run_mig() {
     let db = connection().await;
-    let schema_dir = SudmConfig::current_schema_path();
 
-    let mut entries = match read_dir(&schema_dir) {
-        Ok(dir) => dir
-            .filter_map(|res| res.ok())
-            .map(|entry| entry.path())
-            .filter(|path| path.extension().and_then(|s| s.to_str()) == Some("surql"))
-            .collect::<Vec<_>>(),
-        Err(e) => {
-            error!("Failed to read schema directory '{}': {}", schema_dir.display(), e);
-            return;
+    // Collect schema, function, and event paths
+    let dirs = vec![
+        SudmConfig::current_schema_path(),
+        SudmConfig::current_functions_path(),
+        SudmConfig::current_events_path(), // Add your events folder here
+    ];
+
+    let mut entries = Vec::new();
+
+    for dir in dirs {
+        if let Ok(dir_iter) = read_dir(&dir) {
+            let files = dir_iter
+                .filter_map(|res| res.ok())
+                .map(|entry| entry.path())
+                .filter(|path| path.extension().and_then(|s| s.to_str()) == Some("surql"));
+            entries.extend(files);
         }
-    };
+    }
 
     entries.sort();
 
     if entries.is_empty() {
-        warn!("No migration files found in {}", schema_dir.display());
+        warn!("No migration files found!");
         return;
     }
 
@@ -70,12 +76,12 @@ async fn run_mig() {
         match db.query(&query_content).await {
             Ok(_) => success!("Applied: {}", filename),
             Err(e) => {
-                error!("Failed at migration {}: {}", filename, e);
+                error!("Failed at {}: {}", filename, e);
                 return;
             }
         }
     }
 
     println!("\n");
-    success!("All migrations applied successfully!");
+    success!("All schemas, functions, and events applied successfully!");
 }
